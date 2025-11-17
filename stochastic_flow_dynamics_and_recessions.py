@@ -7,6 +7,9 @@
 # runoff events and the recession properties of catchments - for example - before and after
 #  a wildfire.
 
+# works with the SPATIAL environment 
+
+
 #import packages
 import numpy as np
 import pandas as pd
@@ -20,6 +23,51 @@ from scipy.optimize import curve_fit
 import datetime
 
 
+def extract_recessions(q, min_length=5, min_q_start=0):
+    '''
+    extract recesions from an hydrograph
+    min lenght of the recession and minimum discharge at the beginning of the 
+    recession can be set
+    '''
+  
+    #forward difference
+    q_diff = np.diff(q,append=np.nan)
+    #decreasing part of the hydrograph
+    q_decreasing = q_diff<0
+    # Label connected components to identify recessions
+    labeled_array, num_features = label(q_decreasing)
+    
+    # Initialize result array
+    q_decreasing_filtered = q_decreasing.copy()
+
+    # Iterate over each labeled component and remove those not matching with the selection criteria
+    for component_label in range(1, num_features + 1):
+        # Get indices of the current component
+        indices = np.where(labeled_array == component_label)[0]
+        
+        # Check conditions on duration and Q0
+        if len(indices) < min_length or np.max(q[indices])<min_q_start :
+            # Replace short sequence with 0s
+            q_decreasing_filtered[indices] = 0
+
+    # Label connected components on the filtered sequence
+    labeled_array_filtered, num_features_filtered = label(q_decreasing_filtered)
+
+    recessions=[]
+    for component_label in range(1, num_features_filtered + 1):
+        indices = np.where(labeled_array_filtered == component_label)[0]
+        recessions.append(q[indices])
+
+
+    return recessions  
+
+
+
+
+
+
+
+
 #Define seasons:
 seasons = {
     "spring": [3,4,5],
@@ -30,7 +78,7 @@ seasons = {
           }
 
 
-#<<<<<< denote where action is needed 
+#<<<<<< denotes where action is needed 
 
 #select dataset  <<<<<<<
 #MOPEX: https://www.hydroshare.org/resource/99d5c1a238134ea6b8b767a65f440cb7/
@@ -55,11 +103,13 @@ gauge_name = '02143040'  # MOPEX
 gauge_name = '11160000'  # MOPEX
 #gauge_name = '01445000'  # MOPEX
 #gauge_name = '03504000' # MOPEX
-gauge_name = '02138500' # MOPEX
+#gauge_name = '02138500' # MOPEX
+#gauge_name = '02143040' #MOPEX
+gauge_name = '5526000'  # MOPEX  
 #gauge_name = '********' 
 
 #choose a season <<<<<<<
-season     = 'autumn'
+season     = 'year'
 
 
 #import data depending on the dataset
@@ -67,9 +117,8 @@ season     = 'autumn'
 
 if dataset == 'CAMEL':
     
-    
     #set dataset path <<<<<<
-    dataset_folder = Path('E:\Padova\datasets\CAMEL')
+    dataset_folder = Path('E:/Padova/datasets/CAMEL')
     
     
     ###########################
@@ -166,7 +215,7 @@ elif dataset == 'MOPEX':
       
     
     #set dataset path <<<<<<<
-    dataset_folder = Path('E:\Padova\datasets\MOPEX')
+    dataset_folder = Path('E:/Padova/datasets/MOPEX')
     
 
     ####################################
@@ -201,8 +250,13 @@ elif dataset == 'MOPEX':
     PET = np.array(seasonal_flow.PET)
 
 
+    ###############################
+    ### IMPORT CATCHMENT ATTRIBUTES
+    ###############################
+    catchment_attributes = pd.read_csv(dataset_folder / 'elevation_slope_mopex431.txt', sep='\t')
 
 
+    print(catchment_attributes[catchment_attributes.USGS_SiteCode== int(gauge_name)])
 
 ################## end import ##################################################
 ################################################################################
@@ -219,7 +273,7 @@ h_peak         = h[h_peak_indices]
 
 
 
-##find peaks -- identifies positive increment  in flow timeseries --  method 2
+##find peaks -- identifies positive increment  in flow timeseries --  method 1
 
 # Compute forward difference
 q_diff = np.diff(q, n=1)
@@ -242,6 +296,26 @@ q_peak           = q[q_peak_indices]
 
 
 
+# =============================================================================
+# ##find peaks --  method 2  DA PERFEZIONARE
+# 
+# local_maxima   = (q[1:-1] >= q[:-2]) & (q[1:-1] >= q[2:])
+# local_maxima   = np.pad(local_maxima, pad_width=(1, 1), mode='constant', constant_values=0)
+# local_maxima   = np.where(local_maxima)[0]
+# q_local_maxima = q[local_maxima]
+# 
+# local_minima   = (q[1:-1] <= q[:-2]) & (q[1:-1] <= q[2:])
+# local_minima   = np.pad(local_minima, pad_width=(1, 1), mode='constant', constant_values=0)
+# local_minima   = np.where(local_minima)[0]
+# q_local_minima = q[local_minima]
+# 
+# delta_q= np.zeros(len(q))
+# for lm, qlm in zip(local_maxima, q_local_maxima) :
+#     diff_time = lm - local_minima
+#     if (diff_time[diff_time>0] >0).size:
+#         di_time = np.min( diff_time[diff_time>0] )
+#         delta_q[lm] = q[lm]-q[lm-di_time]
+# =============================================================================
 
 
 
@@ -273,7 +347,7 @@ ax2.invert_yaxis()
 # Label x-axis and title
 plt.title('...')
 plt.xlabel('Time')
-plt.xlim(3100, 3200)
+plt.xlim(1000, 1200)
 
 # Display the plot
 plt.show()
@@ -284,10 +358,9 @@ plt.show()
 
 # compute the parameter of the stochastic flow dynamics model
 
-
 #average freqency (lambda) and intensity (alpha) of streamflow increments
 lambda_Q_t = len(q_diff_positive>0)/len(q)  # (1/(day))
-alpha_Q_t  = np.mean(q_diff_positive)       # (mm)
+alpha_Q_t  = np.mean(q_diff_positive)       # (mm)     !!!!!!!! questa non è la definizione di alpha_Q_t !!!!!!
 
 
 #average freqency (lambda) and intensity (alpha) of precipitation
@@ -449,12 +522,12 @@ for i in range(len(K)):
 
     
     plt.scatter( temp_1, temp_2)
-    #plt.plot( temp_1, K[i] * temp_1 ,color='red' )
-    #plt.plot( temp_1, A[i] * temp_1**B[i], color='blue' )
     plt.ylim(np.percentile(q_recessions_diff_all,0), np.percentile(q_recessions_diff_all,100))
     plt.xlim(np.percentile(q_recessions_all,0), np.percentile(q_recessions_all,100))
     plt.xscale('log')  # Set the x-axis to use a logarithmic scale
     plt.yscale('log')  # Set the y-axis to use a logarithmic scale
+    #plt.plot( temp_1, K[i] * temp_1 ,color='red' )
+    #plt.plot( temp_1, A[i] * temp_1**B[i], color='blue' )
     #plt.show()  # UNCOMMENT THIS TO PLOT ONE BY ONE 
 
 plt.show()
@@ -523,8 +596,8 @@ plt.ylabel('dq/day')
 plt.ylim(np.percentile(q_recessions_diff_all,0), np.percentile(q_recessions_diff_all,100))
 plt.xlim(np.percentile(q_recessions_all,0), np.percentile(q_recessions_all,100))
 plt.legend(loc='lower right')
-#plt.xscale('log')  # Set the x-axis to use a logarithmic scale
-#plt.yscale('log')  # Set the y-axis to use a logarithmic scale
+plt.xscale('log')  # Set the x-axis to use a logarithmic scale
+plt.yscale('log')  # Set the y-axis to use a logarithmic scale
 plt.show()
 
 
@@ -581,15 +654,26 @@ for t in range(1,timeseries_length,1):
     
     sum_spikes = np.sum(spikes[t_spikes == t])
     
-    ##use this for exponential recessions
+    #############################
+    ## exponential recessions
+    ##############################
+    #q_simulated_exp[t]   = q_simulated_exp[t-1] - q_simulated_exp[t-1] * (1-np.exp(-k*0.5))  + sum_spikes  - (q_simulated_exp[t-1] - q_simulated_exp[t-1] * (1-np.exp(-k*0.5))  + sum_spikes) * (1-np.exp(-k*0.5))
     #q_simulated_exp[t]   = q_simulated_exp[t-1]  + sum_spikes  -   q_simulated_exp[t-1] * (1-np.exp(-k*1))
-    q_simulated_exp[t]   = (q_simulated_exp[t-1]  + sum_spikes)/k * ( 1 - np.exp(-k*1) ) / 1 
+    q_simulated_exp[t] = (q_simulated_exp[t-1]*(np.exp(-k*0.5)) + sum_spikes ) /k * (1- np.exp(-k*1))
+
+    ######################
+    ##power-law recessions
+    ######################
+    q_simulated_power[t] = np.nanmax( [q_simulated_power[t-1] - a*q_simulated_power[t-1]**b *1   ,1e-30]) + sum_spikes
     
+    #q_simulated_power[t] = np.nanmax( [q_simulated_power[t-1] - a*q_simulated_power[t-1]**b *0.5 + sum_spikes - a*(q_simulated_power[t-1] - a*q_simulated_power[t-1]**b *0.5 + sum_spikes)**b *0.5  ,1e-30])
     
-    ##use this for power-law recessions
+
     #c   = np.max( [ q_simulated_power[t-1]  + sum_spikes  -  a*q_simulated_power[t-1]**(b)  , 0 ] )    
     #q_simulated_power[t] = ((np.max ( [q_simulated_power[t-1] +sum_spikes,  1e-30]))**(1-b)  -  a*(1-b)*1 )**(1/(1-b))
-    q_simulated_power[t] = ( np.max( [ q_simulated_power[t-1],1e-30])**(1-b) + a*(b-1)*1   )**(1/(1-b)) + sum_spikes
+    
+    ##this works ok
+    #q_simulated_power[t] = np.nanmax([( np.nanmax( [ q_simulated_power[t-1],1e-30])**(1-b) + a*(b-1)*1   ),1e-30]) **(1/(1-b)) + sum_spikes
    
     
 ## PLOT TIMESERIES
@@ -662,3 +746,260 @@ plt.show()
 #     plt.show()
 # 
 # =============================================================================
+
+
+
+'''
+this part extract the hydrograph corresponding to the largest recorded flood and estimates 
+the peak discharge and the time between the rising and falling limb have a discharge q=q_max/2
+'''
+
+
+# Boolean array where True indicates a local minimum
+local_minima = (q[1:-1] < q[:-2]) & (q[1:-1] < q[2:])
+# Indices of local minima
+minima_indices = np.where(local_minima)[0] + 1  # +1 to correct the index offset
+# Values of local minima
+minima_values = q[minima_indices]
+
+#maximum of the timeserie
+i_max =  np.argmax(q)
+q_max = q[i_max]
+
+i_start  = i_max  -  np.min(i_max-minima_indices[minima_indices<i_max])
+i_end    = i_max  +  np.min(minima_indices[minima_indices>i_max] - i_max)
+duration = i_end  - i_start
+
+DQ = q[i_max] - q[i_start]
+q_extracted = q[i_start:i_end]
+
+#finds the time interval DT between the moment both the increasing and the decreasing limb of the hydrograph are q_max/2
+frq = 0.01
+t_original       = np.arange(0,duration,1)
+t_interpolation  = np.arange(0,duration,frq)
+
+q_extracted_interpolated  = np.interp(t_interpolation, np.arange(0,duration,1), q_extracted)
+
+id_max= np.argmax(q_extracted_interpolated)
+
+difference = np.abs( q_extracted_interpolated - q_max/2)
+t_1= np.argmin( difference[0:id_max])
+t_2= id_max + np.argmin( difference[id_max:])
+
+
+DT = ( t_2 - t_1) / frq # goes back to days
+
+
+plt.plot(t_original,q_extracted)
+plt.plot([t_1*frq,t_2*frq], [q_max/2,q_max/2])
+plt.show()
+
+plt.plot(q)
+plt.scatter(minima_indices, minima_values, marker='.', c='red')
+plt.scatter(i_start, q[i_start], marker='.', c='black')
+plt.xlim(750, 850)
+
+
+'''
+this part extract ALL hydrographs matching a certain criteria
+'''
+
+#threshold q_start (initial discharge)
+q_threshold_start  = np.percentile(q,100)
+
+# Boolean array where True indicates a local minimum
+local_minima = (q[1:-1] <= q[:-2]) & (q[1:-1] <= q[2:])
+local_minima = np.pad(local_minima, pad_width=(1, 1), mode='constant', constant_values=0)
+
+#discard those higher than q_threshold
+local_minima[np.where(q[local_minima]>q_threshold_start)] = False
+
+# Values of local minima
+q_minima = q[local_minima]
+
+minima_indices=np.where(local_minima)[0]
+
+q_threshold_peak = np.percentile(q, 10)
+q_threshold_end  = np.percentile(q, 60)
+len_treshold     = 10
+H = []
+max_len=0
+for i in range(len(minima_indices)-1):
+    q_hydrograph = q[ minima_indices[i] : minima_indices[i+1]]
+    if (np.max(q_hydrograph) > q_threshold_peak): # and
+        #q_hydrograph[0] < q_threshold_end and
+        #q_hydrograph[-1] < q_threshold_end ):
+        
+        len_q = len(q_hydrograph) 
+        
+        if len_q > len_treshold:
+            H.append(q_hydrograph)
+    
+            plt.plot(q_hydrograph)
+            #plt.show()
+
+            if len_q > max_len:
+                max_len=len(q_hydrograph)    
+        
+
+frame= max_len*2
+HH = np.full((len(H),frame), np.nan)
+position_peak  = int(frame/2)
+
+for i, h in enumerate(H):
+    shift = position_peak -  np.argmax(h) 
+    HH[i,shift:shift+len(h)] = h[np.newaxis, :]
+
+
+plt.plot(HH.T)
+plt.show()
+
+
+
+# Define the customized function to fit
+def custom_function(x, a, b):
+    return a + b*x
+
+flood_volume = np.nansum(HH,axis=1)
+flood_peak   = np.nanmax(HH,axis=1)
+
+# Fit the function to the data
+initial_guess = [1, 1.0]  
+params, covariance = curve_fit(custom_function, np.log(flood_volume), np.log(flood_peak), p0=initial_guess)
+a, b = params
+
+vals = np.linspace(np.min(flood_volume),np.max(flood_volume) )
+plt.scatter(flood_volume ,flood_peak, marker = '.')
+plt.plot( vals, np.exp(a)*vals**b , color = 'r'  )
+plt.xscale('log'),plt.yscale('log')
+plt.xlabel('Hydrograph volume (mm)'), plt.ylabel('Hydrograph peak (mm/day)')
+textstr = f'y= {np.exp(a):.2f} x ^ {b:.2f}'
+plt.text(0.05, 0.95, textstr, transform=plt.gca().transAxes, fontsize=12,
+         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+plt.show()
+
+
+
+
+# =============================================================================
+# ## find the width at Q_max/2
+# Q_max=[]   
+# DT=[]  
+# for i, h in enumerate(H):
+# 
+#     q_max = np.nanmax(h)
+#     frq = 0.01
+#     duration= len(h)
+#     t_original       = np.arange(0,duration,1)
+#     t_interpolation  = np.arange(0,duration,frq)
+#     h_interpolated  = np.interp(t_interpolation, t_original, h)
+#     id_max= np.argmax(h_interpolated)
+#     if id_max > 0 :
+#         difference = np.abs( h_interpolated - q_max/2)
+#         t_1= np.argmin( difference[0:id_max])
+#         t_2= id_max + np.argmin( difference[id_max:])
+#         dt = ( t_2 - t_1) * frq # goes back to days
+#         
+#         Q_max.append(q_max)
+#         DT.append(dt)
+# plt.scatter(DT,Q_max)
+# =============================================================================
+
+
+
+
+
+        
+##########################   continua qua....
+
+
+
+
+# =============================================================================
+# #maximum of the timeserie
+# i_max =  np.argmax(q)
+# q_max = q[i_max]
+# 
+# i_start  = i_max  -  np.min(i_max-minima_indices[minima_indices<i_max])
+# i_end    = i_max  +  np.min(minima_indices[minima_indices>i_max] - i_max)
+# duration = i_end  - i_start
+# 
+# DQ = q[i_max] - q[i_start]
+# q_extracted = q[i_start:i_end]
+# 
+# #finds the time interval DT between the moment both the increasing and the decreasing limb of the hydrograph are q_max/2
+# frq = 0.01
+# t_original       = np.arange(0,duration,1)
+# t_interpolation  = np.arange(0,duration,frq)
+# 
+# q_extracted_interpolated  = np.interp(t_interpolation, np.arange(0,duration,1), q_extracted)
+# 
+# id_max= np.argmax(q_extracted_interpolated)
+# 
+# difference = np.abs( q_extracted_interpolated - q_max/2)
+# t_1= np.argmin( difference[0:id_max])
+# t_2= id_max + np.argmin( difference[id_max:])
+# 
+# 
+# DT = ( t_2 - t_1) / frq # goes back to days
+# 
+# 
+# plt.plot(t_original,q_extracted)
+# plt.plot([t_1*frq,t_2*frq], [q_max/2,q_max/2])
+# plt.show()
+# 
+# plt.plot(q)
+# plt.scatter(minima_indices, minima_values, marker='.', c='red')
+# plt.scatter(i_start, q[i_start], marker='.', c='black')
+# plt.xlim(750, 850)
+# 
+# =============================================================================
+
+
+
+
+## power spectrum
+
+#in frequency domain
+# Compute the FFT
+fft_values = np.fft.fft(q)
+# Compute the power spectrum
+power_spectrum = np.abs(fft_values)**2 / len(q)
+# Get the frequency bins
+freq_bins = np.fft.fftfreq(len(q), d=1)  # d is the sampling interval, typically 1 day for daily data
+# Filter positive frequencies for plotting
+positive_freq_indices = freq_bins > 0
+positive_freq_bins = freq_bins[positive_freq_indices]
+positive_power_spectrum = power_spectrum[positive_freq_indices]
+# Plot the power spectrum on a log-log scale
+plt.figure(figsize=(10, 4))
+plt.loglog(positive_freq_bins, positive_power_spectrum)
+plt.title('Log-Log Plot of Power Spectrum of Discharge Time Series')
+plt.xlabel('Frequency (1/day)')
+plt.ylabel('Power')
+plt.grid(True, which='both', ls='--')  # Add grid lines for better readability
+plt.show()
+
+
+
+#in period domain 
+# Compute the FFT
+fft_values = np.fft.fft(q)
+# Compute the power spectrum with normalization
+power_spectrum = np.abs(fft_values)**2 / len(q)
+# Get the frequency bins
+freq_bins = np.fft.fftfreq(len(q), d=1)  # d is the sampling interval, typically 1 day for daily data
+# Filter positive frequencies for plotting
+positive_freq_indices = freq_bins > 0
+positive_freq_bins = freq_bins[positive_freq_indices]
+positive_power_spectrum = power_spectrum[positive_freq_indices]
+# Convert frequency to period
+positive_period_bins = 1 / positive_freq_bins
+# Plot the power spectrum on a log-log scale with period on the x-axis
+plt.figure(figsize=(10, 4))
+plt.loglog(positive_period_bins, positive_power_spectrum, 'o', markersize=1, label='Data Points')
+plt.title('Log-Log Plot of Power Spectrum of Discharge Time Series')
+plt.xlabel('Period (days)')
+plt.ylabel('Power')
+plt.grid(True, which='both', ls='--')  # Add grid lines for better readability
+plt.show()
